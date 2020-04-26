@@ -272,6 +272,9 @@ class GraphConvolutionalNN():
                 epoch_losses['val_pi_loss'] += loss_p.item()/testset_n
                 epoch_losses['val_v_loss'] += loss_v.item()/testset_n
                 epoch_losses['val_loss'] += loss/testset_n
+                
+            for key in losses.keys():
+                losses[key] += [epoch_losses[key]]
                                                          
             # Check patience and early stopping
             if best_last > losses['loss'][-1]:
