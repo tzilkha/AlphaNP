@@ -2,12 +2,20 @@ Authors:
 Tal Isaac Zilkha (tiz2102)
 Mat Hillman (mh3691)
 
-The current implementation is all in a jupyter notebook for ease of
-tweaking. Will soon be updated into multiple organized classes once code
-structure works.
+EVALUATE module - 
+Utility methods to compare multiple nets.
 
-Currently MCTS works with a neural net . Implemented a CNN. From preliminary
-examination seems that CNN does not speed up. Next step is to try GNN for
-TSP.
+MCTS module - 
+Monte carlo tree search algorithm
 
-Planning on implementing LSTM and more NP Problems.
+NETS module - 
+Neural Net classes used for experiments
+
+SELFPLAY module - 
+Contains class and methods to train a neural network through monte carlo
+assisted self-play to generate samples. 
+
+TSP module - 
+Contains logic for the TSP single player game.
+
+
