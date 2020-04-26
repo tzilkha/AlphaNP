@@ -77,7 +77,7 @@ class MCTS():
         if s not in self.Ps:
             # leaf node
             if self.nnet is not None:
-                if self.args['history']:
+                if self.nnet.HISTORY:
                     self.Ps[s], v = self.nnet.predict(state, self.game.graph)
                 else:
                     self.Ps[s], v = self.nnet.predict(state[-1], self.game.graph)

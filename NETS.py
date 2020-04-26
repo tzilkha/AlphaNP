@@ -1,10 +1,14 @@
 import sys
 import numpy as np
+import random
+
+from TSP import TSPGame
+
 from tensorflow.keras.models import *
 from tensorflow.keras.layers import *
 from tensorflow.keras.optimizers import *     
 from tensorflow.keras.preprocessing import sequence
-from TSP import TSPGame
+from tensorflow.keras.callbacks import EarlyStopping
 
 import torch
 from torch import nn
@@ -19,6 +23,7 @@ class ConvolutionalNN():
         self.action_size = args['num_node']
         self.args = args
         self.create_net()
+        self.HISTORY = False
 
     def train(self, examples):
         """
@@ -33,8 +38,11 @@ class ConvolutionalNN():
         
         boards_graphs_list = [(input_graphs[i], input_boards[i]) for i in range(0, len(input_boards))] 
         input = [np.concatenate([*i], axis=1) for i in boards_graphs_list]
+        
+        es = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=self.args['patience'])
+        
         hist = self.model.fit(x = [input], y = [target_pis, target_vs], validation_split=self.args['validation_split'],
-                       batch_size = self.args.batch_size, epochs = self.args.epochs, verbose=1)
+                       batch_size = self.args.batch_size, epochs = self.args.epochs, verbose=1, callbacks=[es])
         return hist
 
     def predict(self, board, graph):
@@ -82,6 +90,7 @@ class ConvolutionalNN():
         
         # load weights into new model
         self.model.load_weights('saved_models/' + filename + ".h5")
+        self.model.compile(loss=['categorical_crossentropy','mean_squared_error'], optimizer=Adam(self.args.lr))  
         print("Loaded model from disk")
         
 
@@ -95,7 +104,7 @@ class RecurrentNN():
         self.args = args
         self.create_net()
         # Conv no history
-        self.args['history'] = True
+        self.HISTORY = True       
         
     def create_net(self):
         self.input_boards = Input(shape=(self.num_node, self.num_node*4))
@@ -127,8 +136,11 @@ class RecurrentNN():
         target_vs = np.asarray(target_vs)
         boards_graphs_list = [(input_boards[i], input_graphs[i]) for i in range(0, len(input_boards))] 
         prepared_inputs = np.asarray([self.prepare_input(*i)[0] for i in boards_graphs_list])
+        
+        es = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=self.args['patience'])
+        
         hist = self.model.fit(x = [prepared_inputs], y = [target_pis, target_vs], validation_split=self.args['validation_split'],
-                       batch_size = self.args.batch_size, epochs = self.args.epochs, verbose=1)
+                       batch_size = self.args.batch_size, epochs = self.args.epochs, verbose=1, callbacks=[es])
         return hist
 
     #
@@ -176,6 +188,7 @@ class RecurrentNN():
         
         # load weights into new model
         self.model.load_weights('saved_models/' + filename + ".h5")
+        self.model.compile(loss=['categorical_crossentropy','mean_squared_error'], optimizer=Adam(self.args.lr))  
         print("Loaded model from disk")
         
      
@@ -188,34 +201,94 @@ class GraphConvolutionalNN():
 
         self.optimizer = torch.optim.Adam(params = self.model.parameters(),lr=self.args['lr'])
         self.loss_func = nn.MSELoss()
+        
+        self.HISTORY = False
+        
+    def create_net(self):
+        return
     
     def train(self, examples):
         """
         examples: list of examples, each example is of form (board, pi, v)
         """
-        losses = []
+        losses = {'loss':[], 'v_loss':[], 'val_v_loss':[], 'val_pi_loss':[], 'pi_loss':[], 'val_loss':[]}
         self.model.train()
+        
+        count_improvement = 0
+        best_last = np.inf
         
         examples = self.convert_dataset(examples)
         
         for epoch in range(self.args['epochs']):
-            epoch_loss = 0
-            if (epoch+1)%10 == 0: print("Epoch", str(epoch+1)+"/"+str(self.args['epochs']))
-            for example in examples:
+
+            epoch_losses = {'loss':0, 'v_loss':0, 'val_v_loss':0, 'val_pi_loss':0, 'pi_loss':0, 'val_loss':0}
+            
+            random.shuffle(examples)
+
+            cut = int(len(examples)*self.args['validation_split'])
+            testset = examples[:cut]
+            trainset = examples[cut:]
+            
+            testset_n = len(testset)
+            trainset_n = len(testset)
+            
+            totloss_v = 0
+            totloss_p = 0
+                        
+            if (epoch+1)%10 == 0: print("Epoch", str(epoch+1)+"/"+str(self.args['epochs']), "Loss -", losses['loss'][-1])
+                
+            for example in trainset:
                 g,p,v = example
                 
                 pred_choices, pred_value = self.model(g, g.y)
-                loss = self.loss_func(pred_choices.double(), torch.tensor(p).double()) +\
-                        (0.2 * self.loss_func(pred_value.double(), torch.tensor(v).double()))
-                losses.append(loss.item())
-                epoch_loss+=losses[-1]
+                
+                p = [[i] for i in p]
+                
+                loss_p = self.loss_func(pred_choices.double(), torch.tensor(p).double())
+
+                loss_v =  self.loss_func(pred_value.double(), torch.tensor(v).double())
+                        
+                loss = loss_p + loss_v
+                
+                epoch_losses['pi_loss'] += loss_p.item()
+                epoch_losses['v_loss'] += loss_v.item()
+                epoch_losses['loss'] += loss.item()
+                
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+            
+            for example in testset:
+                g,p,v = example
+                
+                pred_choices, pred_value = self.model.forward(g, g.y)
+                
+                loss_p = self.loss_func(pred_choices.double(), torch.tensor(p).double())
+                
+                loss_v = self.loss_func(pred_value.double(), torch.tensor(v).double())
+                
+                loss = loss_p.item() + loss_v.item()
+                
+                epoch_losses['val_pi_loss'] += loss_p.item()
+                epoch_losses['val_v_loss'] += loss_v.item()
+                epoch_losses['val_loss'] += loss
+                                                         
+            for key in losses.keys():
+                losses[key].append(epoch_losses[key]/testset_n)
+            
+            # Check patience and early stopping
+            if best_last > losses['loss'][-1]:
+                count_improvement = 0
+                best_last = losses['loss'][-1]
+            else:
+                count_improvement += 1
+                if count_improvement >= self.args['patience']:
+                    print("No improvement - Early Stopping")
+                    break
+                else:
+                    count_improvement += 1
+    
         return losses
-
-
-        pass
     
     def convert_dataset(self, examples):
         graph_examples = []
@@ -253,9 +326,13 @@ class GraphConvolutionalNN():
         board: np array with board
         """        
         graph_ = torch.tensor(graph).to(dtype=torch.float)
-    
-        current_v = [i for i,j in enumerate(hist[-1]) if j[1]==1][0]
-        available_v = [i for i,j in enumerate(hist[-1]) if j[0]==0]
+            
+        if self.HISTORY:
+            current_v = [i for i,j in enumerate(hist[-1]) if j[1]==1][0]
+            available_v = [i for i,j in enumerate(hist[-1]) if j[0]==0]
+        else:
+            current_v = [i for i,j in enumerate(hist) if j[1]==1][0]
+            available_v = [i for i,j in enumerate(hist) if j[0]==0]
         
         choices = torch.zeros(self.args['num_node'], dtype=torch.bool)
         choices[available_v] = 1
@@ -276,6 +353,7 @@ class GraphConvolutionalNN():
     
     def load_model(self, filename):
         self.model.load_state_dict(torch.load('./saved_models/'+filename))
+        print('Loaded model from disk')
         return
 
 
@@ -285,14 +363,13 @@ class gnn(nn.Module):
     def __init__(self, d=2):
         self.d = d
         super(gnn, self).__init__()
-        self.conv1 = GCNConv(d,  16)
-        self.conv2 = GCNConv(16, 16)
+        self.conv1 = GCNConv(d,  32)
+        self.conv2 = GCNConv(32, 16)
         self.conv3 = GCNConv(16, 1)
         self.fc    = nn.Linear(16, 1)
     
     def forward(self, graph, choices):
         x, edges = graph.pos, graph.edge_index
-        
         x = self.conv1(x, edges)
         x = F.relu(x)
         x = self.conv2(x, edges)

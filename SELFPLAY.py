@@ -6,6 +6,9 @@ import numpy as np
 import copy
 import pandas as pd
 
+from TSP import TSPGame
+from MCTS import MCTS
+
 class Coach():
     
     def __init__(self, nnet, args):
@@ -74,15 +77,15 @@ class Coach():
             results['new'] += [self.play_game(self.nnet, g)]  
             
         print("\n################################### - RESULTS - ###################################")
-        res = ["Old" if te['new'][i]<te['old'][i] else("New" if te['new'][i]>te['old'][i] else "Tie")  \
-               for i in range(len(te['new']))]
+        res = ["Old" if results['new'][i]<results['old'][i] else("New" if results['new'][i]>results['old'][i] else "Tie")  \
+               for i in range(len(results['new']))]
         print(pd.Series(res).value_counts())
 
         counts = {'New':0, 'Old':0, 'Tie':0}
         for key in counts.keys():
             counts[key] = res.count(key)
-            
-        if counts['New']/counts['Old']>self.args['winThresh']:
+        
+        if (counts['Old']==0) or (counts['New']/counts['Old']>self.args['winThresh']):
             print("NEW GENERATION SUPERIOR")
             print("Updating model.")
             self.gen += 1
