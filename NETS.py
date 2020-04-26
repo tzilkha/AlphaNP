@@ -250,9 +250,9 @@ class GraphConvolutionalNN():
                         
                 loss = loss_p + loss_v
                 
-                epoch_losses['pi_loss'] += loss_p.item()
-                epoch_losses['v_loss'] += loss_v.item()
-                epoch_losses['loss'] += loss.item()
+                epoch_losses['pi_loss'] += loss_p.item()/trainset_n
+                epoch_losses['v_loss'] += loss_v.item()/trainset_n
+                epoch_losses['loss'] += loss.item()/trainset_n
                 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -269,13 +269,10 @@ class GraphConvolutionalNN():
                 
                 loss = loss_p.item() + loss_v.item()
                 
-                epoch_losses['val_pi_loss'] += loss_p.item()
-                epoch_losses['val_v_loss'] += loss_v.item()
-                epoch_losses['val_loss'] += loss
+                epoch_losses['val_pi_loss'] += loss_p.item()/testset_n
+                epoch_losses['val_v_loss'] += loss_v.item()/testset_n
+                epoch_losses['val_loss'] += loss/testset_n
                                                          
-            for key in losses.keys():
-                losses[key].append(epoch_losses[key]/testset_n)
-            
             # Check patience and early stopping
             if best_last > losses['loss'][-1]:
                 count_improvement = 0
@@ -316,7 +313,6 @@ class GraphConvolutionalNN():
             edges[0, i] = current_v
             edges[1, i] = j
 
-    #     x = torch.cat([graph_, choices.unsqueeze(-1).to(dtype=torch.float)], dim=-1)
         g = Data(pos=graph_, edge_index=edges, y=choices)
     
         return g, p, v

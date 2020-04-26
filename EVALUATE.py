@@ -8,6 +8,7 @@ import copy
 def evaluation_run(game, MCTSs):
     results = {}
     optimal_val, optimal_path = game.optimal_sol()
+
     for model in MCTSs.keys():
         state = [game.getStartState()]
         mcts_reward = 0
