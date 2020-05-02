@@ -37,11 +37,11 @@ class ConvolutionalNN():
         target_vs = np.asarray(target_vs)
         
         boards_graphs_list = [(input_graphs[i], input_boards[i]) for i in range(0, len(input_boards))] 
-        input = [np.concatenate([*i], axis=1) for i in boards_graphs_list]
+#         input = [np.concatenate([*i], axis=1) for i in boards_graphs_list]
         
         es = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=self.args['patience'])
         
-        hist = self.model.fit(x = [input], y = [target_pis, target_vs], validation_split=self.args['validation_split'],
+        hist = self.model.fit(x = [input_boards, input_graphs], y = [target_pis, target_vs], validation_split=self.args['validation_split'],
                        batch_size = self.args.batch_size, epochs = self.args.epochs, verbose=1, callbacks=[es])
         return hist
 
@@ -49,27 +49,37 @@ class ConvolutionalNN():
         """
         board: np array with board
         """        
-        merged = np.concatenate([graph, board], axis=1)
-        merged = merged[np.newaxis, :, :]
+        board = board[np.newaxis, :, :]
+        graph = graph[np.newaxis, :, :]
+
         
         # run
-        pi, v = self.model.predict(merged)
+        pi, v = self.model.predict([board,graph])
         return pi[0], v[0]
     
     def create_net(self):
         # Neural Net
-        self.input_boards = Input(shape=(self.action_size, 4))   
+        self.input_boards = Input(shape=(self.action_size, 2))  
+        self.input_graph = Input(shape=(self.action_size, 2))  
+        
+        x_board = Reshape((self.action_size, 2, 1))(self.input_boards) 
+        x_graph = Reshape((self.action_size, 2, 1))(self.input_graph) 
 
-        x_image = Reshape((self.action_size, 4, 1))(self.input_boards)           
-        h_conv1 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 2, padding='same')(x_image)))     
-        h_conv4 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 2, padding='valid')(h_conv1)))     
-        h_conv4_flat = Flatten()(h_conv4)       
-        s_fc1 = Dropout(self.args.dropout)(Activation('relu')(BatchNormalization(axis=1)(Dense(1024)(h_conv4_flat)))) 
-        s_fc2 = Dropout(self.args.dropout)(Activation('relu')(BatchNormalization(axis=1)(Dense(512)(s_fc1))))       
-        self.pi = Dense(self.action_size, activation='softmax', name='pi')(s_fc2)  
-        self.v = Dense(1, activation='relu', name='v')(s_fc2)                  
+        b_conv1 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 2, padding='same')(x_board)))
+        b_conv2 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 2, padding='same')(b_conv1)))
 
-        self.model = Model(inputs=self.input_boards, outputs=[self.pi, self.v])
+        g_conv1 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 2, padding='same')(x_graph)))
+        g_conv2 = Activation('relu')(BatchNormalization(axis=3)(Conv2D(self.args.num_channels, 2, padding='same')(g_conv1)))        
+        concat = Concatenate()([b_conv2, g_conv2])
+        
+        flatten = Flatten()(concat)
+        
+        dropout = Dropout(self.args.dropout)(Activation('relu')(BatchNormalization(axis=1)(Dense(1024)(flatten)))) 
+        
+        self.pi = Dense(self.action_size, activation='softmax', name='pi')(dropout)  
+        self.v = Dense(1, activation='relu', name='v')(dropout)                                
+
+        self.model = Model(inputs=[self.input_boards, self.input_graph], outputs=[self.pi, self.v])
         self.model.compile(loss=['categorical_crossentropy','mean_squared_error'], optimizer=Adam(self.args.lr))
          
     def save_model(self, filename):
